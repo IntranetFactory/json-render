@@ -141,6 +141,23 @@ export type { UserPromptOptions } from "./prompt";
 
 export { buildUserPrompt } from "./prompt";
 
+// Data Binding (unified binding expressions)
+export type { BindingExpression } from "./data-binding";
+
+export {
+  BindingExpressionSchema,
+  isDataBinding,
+  isJsonPointerBinding,
+  isLogicExpressionBinding,
+  isBindingExpression,
+  dataPathToJsonPointer,
+  jsonPointerToDataPath,
+  resolveBindingExpression,
+  resolveVisibilityBinding,
+  resolveBindings,
+  resolveBindingsDeep,
+} from "./data-binding";
+
 // Legacy Catalog (for backwards compatibility during migration)
 export type {
   ComponentDefinition,

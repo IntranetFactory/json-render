@@ -714,4 +714,65 @@ describe("defineCatalog (new schema API)", () => {
     // In the repeat/item example, the first string prop should get a $path binding
     expect(prompt).toContain('"title":{"$path":"$item/title"}');
   });
+
+  describe("unified data binding in prompt", () => {
+    const catalog = defineCatalog(testSchema, {
+      components: {
+        Text: {
+          props: z.object({ content: z.string() }),
+          description: "Display text",
+        },
+      },
+      actions: {},
+    });
+
+    it("includes DATA BINDING section in prompt", () => {
+      const prompt = catalog.prompt();
+      expect(prompt).toContain("DATA BINDING:");
+    });
+
+    it("documents $data dot-notation binding syntax", () => {
+      const prompt = catalog.prompt();
+      expect(prompt).toContain("$data");
+      expect(prompt).toContain("$data.user.name");
+      expect(prompt).toContain("dot notation");
+    });
+
+    it("documents JSON Pointer binding syntax", () => {
+      const prompt = catalog.prompt();
+      expect(prompt).toContain("JSON Pointer");
+      expect(prompt).toContain("/user/name");
+      expect(prompt).toContain("RFC 6901");
+    });
+
+    it("documents Logic Expression binding syntax", () => {
+      const prompt = catalog.prompt();
+      expect(prompt).toContain("Logic expression");
+      expect(prompt).toContain('"eq"');
+    });
+
+    it("documents all three binding forms in DYNAMIC PROPS", () => {
+      const prompt = catalog.prompt();
+      // Should list $data binding form
+      expect(prompt).toContain('"$data.user.name"');
+      // Should list JSON Pointer form
+      expect(prompt).toContain('"/statePath"');
+      // Should still list $path object form (backwards compat)
+      expect(prompt).toContain('"$path"');
+      // Should list conditional form
+      expect(prompt).toContain('"$cond"');
+    });
+
+    it("documents $data and /pointer in VISIBILITY CONDITIONS", () => {
+      const prompt = catalog.prompt();
+      expect(prompt).toContain("$data.statePath");
+      expect(prompt).toContain('"/statePath"');
+    });
+
+    it("references unified bindings in state section", () => {
+      const prompt = catalog.prompt();
+      expect(prompt).toContain("$data.*");
+      expect(prompt).toContain("/pointer");
+    });
+  });
 });

@@ -623,10 +623,10 @@ Note: state patches appear right after the elements that use them, so the UI fil
   // Initial state section
   lines.push("INITIAL STATE:");
   lines.push(
-    "Specs include a /state field to seed the state model. Components with statePath read from and write to this state, and $path expressions read from it.",
+    "Specs include a /state field to seed the state model. Components with statePath read from and write to this state, and data bindings ($data.*, /pointer, $path expressions) read from it.",
   );
   lines.push(
-    "CRITICAL: You MUST include state patches whenever your UI displays data via $path expressions, uses repeat to iterate over arrays, or uses statePath bindings. Without state, $path references resolve to nothing and repeat lists render zero items.",
+    "CRITICAL: You MUST include state patches whenever your UI displays data via data bindings ($data.*, /pointer, or $path expressions), uses repeat to iterate over arrays, or uses statePath bindings. Without state, bindings resolve to nothing and repeat lists render zero items.",
   );
   lines.push(
     "Output state patches right after the elements that reference them, so the UI fills in progressively as it streams.",
@@ -644,10 +644,51 @@ Note: state patches appear right after the elements that use them, so the UI fil
     '  Initialize the array first if needed: {"op":"add","path":"/state/posts","value":[]}',
   );
   lines.push(
-    'When content comes from the state model, use { "$path": "/some/path" } dynamic props to display it instead of hardcoding the same value in both state and props. The state model is the single source of truth.',
+    'When content comes from the state model, use data bindings to display it instead of hardcoding the same value in both state and props. You can use "$data.some.path", "/some/path", or { "$path": "/some/path" }. The state model is the single source of truth.',
   );
   lines.push(
     "Include realistic sample data in state. For blogs: 3-4 posts with titles, excerpts, authors, dates. For product lists: 3-5 items with names, prices, descriptions. Never leave arrays empty.",
+  );
+  lines.push("");
+
+  // Unified data binding section
+  lines.push("DATA BINDING:");
+  lines.push(
+    "Three binding syntaxes are supported for referencing state data. Use them in prop values, visibility conditions, and action params:",
+  );
+  lines.push("");
+  lines.push(
+    '1. `$data` binding (dot notation): A string starting with "$data" reads from the state model using dot-separated paths.',
+  );
+  lines.push(
+    '   Example: `"title": "$data.user.name"` reads state at /user/name.',
+  );
+  lines.push(
+    '   `"$data"` alone reads the entire state. `"$data.items.0.title"` accesses array elements by index.',
+  );
+  lines.push("");
+  lines.push(
+    "2. JSON Pointer (slash notation): A string starting with `/` is an RFC 6901 JSON Pointer path into the state model.",
+  );
+  lines.push(
+    '   Example: `"title": "/user/name"` reads state at /user/name. Supports escaping: ~0 for ~, ~1 for /.',
+  );
+  lines.push("");
+  lines.push(
+    "3. Logic expression (object): An object with operator keys for complex conditions. Evaluates to a boolean.",
+  );
+  lines.push(
+    "   Operators: `eq`, `neq`, `gt`, `gte`, `lt`, `lte` (comparisons), `and`, `or`, `not` (boolean logic), `path` (truthiness).",
+  );
+  lines.push(
+    '   Example: `{ "eq": [{ "path": "/activeTab" }, "home"] }` — true when /activeTab equals "home".',
+  );
+  lines.push("");
+  lines.push(
+    "The $data dot notation and JSON Pointer slash notation are interchangeable for reading state values. Use whichever is clearer for the context.",
+  );
+  lines.push(
+    "Logic expressions are used when you need boolean conditions (e.g. visibility, conditional props).",
   );
   lines.push("");
   lines.push("DYNAMIC LISTS (repeat field):");
@@ -761,6 +802,12 @@ Note: state patches appear right after the elements that use them, so the UI fil
     `Correct: ${JSON.stringify({ type: comp1, props: comp1Props, visible: { eq: [{ path: "/tab" }, "home"] }, children: ["..."] })}`,
   );
   lines.push(
+    '- `"$data.statePath"` - visible when state at path is truthy ($data dot notation)',
+  );
+  lines.push(
+    '- `"/statePath"` - visible when state at path is truthy (JSON Pointer)',
+  );
+  lines.push(
     '- `{ "eq": [{ "path": "/statePath" }, "value"] }` - visible when state at path equals value',
   );
   lines.push(
@@ -783,18 +830,32 @@ Note: state patches appear right after the elements that use them, so the UI fil
   // Dynamic prop expressions
   lines.push("DYNAMIC PROPS:");
   lines.push(
-    "Any prop value can be a dynamic expression that resolves based on state. Two forms are supported:",
+    "Any prop value can be a dynamic expression that resolves based on state. The following forms are supported:",
   );
   lines.push("");
   lines.push(
-    '1. State binding: `{ "$path": "/statePath" }` - resolves to the value at that state path.',
+    '1. $data binding: `"$data.user.name"` - dot-notation string that resolves to the value at that state path.',
+  );
+  lines.push(
+    '   Example: `"title": "$data.user.name"` reads the user name from state.',
+  );
+  lines.push("");
+  lines.push(
+    '2. JSON Pointer binding: `"/statePath"` - a string starting with / that resolves to the value at that state path.',
+  );
+  lines.push(
+    '   Example: `"color": "/theme/primary"` reads the color from state.',
+  );
+  lines.push("");
+  lines.push(
+    '3. $path object binding: `{ "$path": "/statePath" }` - object form that resolves to the value at that state path.',
   );
   lines.push(
     '   Example: `"color": { "$path": "/theme/primary" }` reads the color from state.',
   );
   lines.push("");
   lines.push(
-    '2. Conditional: `{ "$cond": <condition>, "$then": <value>, "$else": <value> }` - evaluates the condition (same syntax as visibility conditions) and picks the matching value.',
+    '4. Conditional: `{ "$cond": <condition>, "$then": <value>, "$else": <value> }` - evaluates the condition (same syntax as visibility conditions) and picks the matching value.',
   );
   lines.push(
     '   Example: `"color": { "$cond": { "eq": [{ "path": "/activeTab" }, "home"] }, "$then": "#007AFF", "$else": "#8E8E93" }`',
@@ -814,7 +875,7 @@ Note: state patches appear right after the elements that use them, so the UI fil
     "Output ONLY JSONL patches - one JSON object per line, no markdown, no code fences",
     'First set root: {"op":"add","path":"/root","value":"<root-key>"}',
     'Then add each element: {"op":"add","path":"/elements/<key>","value":{...}}',
-    "Output /state patches right after the elements that use them, one per array item for progressive loading. REQUIRED whenever using $path, repeat, or statePath.",
+    "Output /state patches right after the elements that use them, one per array item for progressive loading. REQUIRED whenever using data bindings ($data.*, /pointer, $path), repeat, or statePath.",
     "ONLY use components listed above",
     "Each element value needs: type, props, children (array of child keys)",
     "Use unique keys for the element map entries (e.g., 'header', 'metric-1', 'chart-revenue')",
