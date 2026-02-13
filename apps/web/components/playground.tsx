@@ -18,16 +18,19 @@ import { Header } from "./header";
 import { Sheet, SheetContent, SheetTitle } from "./ui/sheet";
 import { PlaygroundRenderer } from "@/lib/render/renderer";
 import { playgroundCatalog } from "@/lib/render/catalog";
+import { JsonEditor } from "./json-editor";
 
-type Tab = "json" | "nested" | "stream" | "catalog";
-type RenderView = "preview" | "code";
+type Tab = "json" | "nested" | "stream" | "catalog" | "prompt";
+type RenderView = "preview" | "code" | "json";
 type MobileView =
   | "json"
   | "nested"
   | "stream"
   | "catalog"
+  | "prompt"
   | "preview"
-  | "generated-code";
+  | "generated-code"
+  | "editable-json";
 
 interface Version {
   id: string;
@@ -103,6 +106,9 @@ export function Playground() {
   const [renderView, setRenderView] = useState<RenderView>("preview");
   const [mobileView, setMobileView] = useState<MobileView>("preview");
   const [versionsSheetOpen, setVersionsSheetOpen] = useState(false);
+  const [editableJson, setEditableJson] = useState<string>("");
+  const [editableSpec, setEditableSpec] = useState<Spec | null>(null);
+  const [jsonError, setJsonError] = useState<string | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const mobileInputRef = useRef<HTMLTextAreaElement>(null);
   const versionsEndRef = useRef<HTMLDivElement>(null);
@@ -168,6 +174,57 @@ export function Playground() {
   ) {
     currentTreeRef.current = currentTree;
   }
+
+  // Generate the system prompt (same custom rules as the API route)
+  const promptText = useMemo(
+    () =>
+      playgroundCatalog.prompt({
+        customRules: [
+          "NEVER use viewport height classes (min-h-screen, h-screen) - the UI renders inside a fixed-size container.",
+          "NEVER use page background colors (bg-gray-50) - the container has its own background.",
+          "For forms or small UIs: use Card as root with maxWidth:'sm' or 'md' and centered:true.",
+          "For content-heavy UIs (blogs, dashboards, product listings): use Stack or Grid as root. Use Grid with 2-3 columns for card layouts.",
+          "Wrap each repeated item in a Card for visual separation and structure.",
+          "Use realistic, professional sample data. Include 3-5 items with varied content. Never leave state arrays empty.",
+        ],
+      }),
+    [],
+  );
+
+  // Sync editable JSON from currentTree whenever it changes
+  useEffect(() => {
+    if (currentTree) {
+      const json = JSON.stringify(currentTree, null, 2);
+      setEditableJson(json);
+      setEditableSpec(currentTree);
+      setJsonError(null);
+    } else {
+      setEditableJson("");
+      setEditableSpec(null);
+      setJsonError(null);
+    }
+  }, [currentTree]);
+
+  // The effective tree used by preview and code tabs:
+  // use editableSpec (from user edits) if available, otherwise currentTree
+  const effectiveTree = editableSpec ?? currentTree;
+
+  // Handle editable JSON changes from the CodeMirror editor
+  const handleJsonEdit = useCallback((value: string) => {
+    setEditableJson(value);
+    try {
+      const parsed = JSON.parse(value);
+      // Basic validation: must have root and elements
+      if (parsed && typeof parsed.root === "string" && typeof parsed.elements === "object") {
+        setEditableSpec(parsed as Spec);
+        setJsonError(null);
+      } else {
+        setJsonError("Invalid spec: must have 'root' (string) and 'elements' (object)");
+      }
+    } catch (e) {
+      setJsonError((e as Error).message);
+    }
+  }, []);
 
   // Scroll to bottom when versions change
   useEffect(() => {
@@ -242,11 +299,11 @@ export function Playground() {
   }, [currentTree]);
 
   const generatedCode = useMemo(() => {
-    if (!currentTree || !currentTree.root) {
+    if (!effectiveTree || !effectiveTree.root) {
       return "// Generate a UI to see the code";
     }
 
-    const tree = currentTree;
+    const tree = effectiveTree;
     const components = collectUsedComponents(tree);
 
     function generateJSX(key: string, indent: number): string {
@@ -301,7 +358,7 @@ ${jsx}
     </div>
   );
 }`;
-  }, [currentTree]);
+  }, [effectiveTree]);
 
   // Chat pane content
   const chatPane = (
@@ -556,12 +613,14 @@ ${jsx}
         ? jsonCode
         : activeTab === "nested"
           ? nestedCode
-          : "";
+          : activeTab === "prompt"
+            ? promptText
+            : "";
 
   const codePane = (
     <div className="h-full flex flex-col border-t border-border">
       <div className="border-b border-border px-3 h-9 flex items-center gap-3">
-        {(["json", "nested", "stream", "catalog"] as const).map((tab) => (
+        {(["json", "nested", "stream", "catalog", "prompt"] as const).map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -575,7 +634,7 @@ ${jsx}
           </button>
         ))}
         <div className="flex-1" />
-        {activeTab !== "catalog" && (
+        {activeTab !== "catalog" && activeTab !== "prompt" && (
           <CopyButton text={copyText} className="text-muted-foreground" />
         )}
       </div>
@@ -697,6 +756,10 @@ ${jsx}
               )}
             </div>
           </div>
+        ) : activeTab === "prompt" ? (
+          <div className="p-3 text-[13px] leading-relaxed font-mono whitespace-pre-wrap text-foreground/80">
+            {promptText}
+          </div>
         ) : activeTab === "stream" ? (
           currentRawLines.length > 0 ? (
             <CodeBlock
@@ -727,6 +790,7 @@ ${jsx}
           [
             { key: "preview", label: "preview" },
             { key: "code", label: "code" },
+            { key: "json", label: "json" },
           ] as const
         ).map(({ key, label }) => (
           <button
@@ -742,17 +806,25 @@ ${jsx}
           </button>
         ))}
         <div className="flex-1" />
+        {jsonError && renderView === "json" && (
+          <span className="text-[11px] font-mono text-red-500 truncate max-w-[50%]" title={jsonError}>
+            {jsonError}
+          </span>
+        )}
         {renderView === "code" && (
           <CopyButton text={generatedCode} className="text-muted-foreground" />
+        )}
+        {renderView === "json" && (
+          <CopyButton text={editableJson} className="text-muted-foreground" />
         )}
       </div>
       <div className="flex-1 overflow-auto">
         {renderView === "preview" ? (
-          currentTree && currentTree.root ? (
+          effectiveTree && effectiveTree.root ? (
             <div className="w-full min-h-full flex items-center justify-center p-6">
               <PlaygroundRenderer
-                spec={currentTree}
-                data={currentTree.state}
+                spec={effectiveTree}
+                data={effectiveTree.state}
                 loading={isStreaming}
               />
             </div>
@@ -763,6 +835,8 @@ ${jsx}
                 : "// enter a prompt to generate UI"}
             </div>
           )
+        ) : renderView === "json" ? (
+          <JsonEditor value={editableJson} onChange={handleJsonEdit} />
         ) : (
           <CodeBlock
             code={generatedCode}
@@ -812,7 +886,7 @@ ${jsx}
               : 0}
           </button>
           {/* Code tabs */}
-          {(["json", "nested", "stream", "catalog"] as const).map((tab) => (
+          {(["json", "nested", "stream", "catalog", "prompt"] as const).map((tab) => (
             <button
               key={tab}
               onClick={() => setMobileView(tab)}
@@ -826,10 +900,11 @@ ${jsx}
             </button>
           ))}
           <div className="flex-1" />
-          {/* Preview / code toggle */}
+          {/* Preview / code / editable-json toggle */}
           {[
             { key: "preview" as const, label: "preview" },
             { key: "generated-code" as const, label: "code" },
+            { key: "editable-json" as const, label: "edit json" },
           ].map(({ key, label }) => (
             <button
               key={key}
@@ -964,6 +1039,10 @@ ${jsx}
                 )}
               </div>
             </div>
+          ) : mobileView === "prompt" ? (
+            <div className="p-3 text-[13px] leading-relaxed font-mono whitespace-pre-wrap text-foreground/80">
+              {promptText}
+            </div>
           ) : mobileView === "stream" ? (
             currentRawLines.length > 0 ? (
               <CodeBlock
@@ -987,11 +1066,11 @@ ${jsx}
           ) : mobileView === "json" ? (
             <CodeBlock code={jsonCode} lang="json" fillHeight hideCopyButton />
           ) : mobileView === "preview" ? (
-            currentTree && currentTree.root ? (
+            effectiveTree && effectiveTree.root ? (
               <div className="w-full min-h-full flex items-center justify-center p-6">
                 <PlaygroundRenderer
-                  spec={currentTree}
-                  data={currentTree.state}
+                  spec={effectiveTree}
+                  data={effectiveTree.state}
                   loading={isStreaming}
                 />
               </div>
@@ -1029,6 +1108,17 @@ ${jsx}
                 )}
               </div>
             )
+          ) : mobileView === "editable-json" ? (
+            <div className="h-full flex flex-col">
+              {jsonError && (
+                <div className="px-3 py-1.5 border-b border-red-500/20 bg-red-500/5">
+                  <span className="text-[11px] font-mono text-red-500">{jsonError}</span>
+                </div>
+              )}
+              <div className="flex-1 min-h-0">
+                <JsonEditor value={editableJson} onChange={handleJsonEdit} />
+              </div>
+            </div>
           ) : (
             /* generated-code */
             <CodeBlock

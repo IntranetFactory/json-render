@@ -14,6 +14,10 @@
   "dependencies": {
     "@ai-sdk/gateway": "^3.0.13",
     "@ai-sdk/react": "3.0.79",
+    "@codemirror/lang-json": "^6.0.2",
+    "@codemirror/state": "^6.5.4",
+    "@codemirror/view": "^6.39.14",
+    "codemirror": "^6.0.2",
     "@json-render/codegen": "workspace:*",
     "@json-render/core": "workspace:*",
     "@json-render/react": "workspace:*",
