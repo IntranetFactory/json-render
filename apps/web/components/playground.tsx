@@ -17,7 +17,7 @@ import { Toaster } from "./ui/sonner";
 import { Header } from "./header";
 import { Sheet, SheetContent, SheetTitle } from "./ui/sheet";
 import { PlaygroundRenderer } from "@/lib/render/renderer";
-import { playgroundCatalog } from "@/lib/render/catalog";
+import { playgroundCatalog, SYSTEM_PROMPT } from "@/lib/render/catalog";
 import { JsonEditor } from "./json-editor";
 
 type Tab = "json" | "nested" | "stream" | "catalog" | "prompt";
@@ -174,22 +174,6 @@ export function Playground() {
   ) {
     currentTreeRef.current = currentTree;
   }
-
-  // Generate the system prompt (same custom rules as the API route)
-  const promptText = useMemo(
-    () =>
-      playgroundCatalog.prompt({
-        customRules: [
-          "NEVER use viewport height classes (min-h-screen, h-screen) - the UI renders inside a fixed-size container.",
-          "NEVER use page background colors (bg-gray-50) - the container has its own background.",
-          "For forms or small UIs: use Card as root with maxWidth:'sm' or 'md' and centered:true.",
-          "For content-heavy UIs (blogs, dashboards, product listings): use Stack or Grid as root. Use Grid with 2-3 columns for card layouts.",
-          "Wrap each repeated item in a Card for visual separation and structure.",
-          "Use realistic, professional sample data. Include 3-5 items with varied content. Never leave state arrays empty.",
-        ],
-      }),
-    [],
-  );
 
   // Sync editable JSON from currentTree whenever it changes
   useEffect(() => {
@@ -614,7 +598,7 @@ ${jsx}
         : activeTab === "nested"
           ? nestedCode
           : activeTab === "prompt"
-            ? promptText
+            ? SYSTEM_PROMPT
             : "";
 
   const codePane = (
@@ -758,7 +742,7 @@ ${jsx}
           </div>
         ) : activeTab === "prompt" ? (
           <div className="p-3 text-[13px] leading-relaxed font-mono whitespace-pre-wrap text-foreground/80">
-            {promptText}
+            {SYSTEM_PROMPT}
           </div>
         ) : activeTab === "stream" ? (
           currentRawLines.length > 0 ? (
@@ -1041,7 +1025,7 @@ ${jsx}
             </div>
           ) : mobileView === "prompt" ? (
             <div className="p-3 text-[13px] leading-relaxed font-mono whitespace-pre-wrap text-foreground/80">
-              {promptText}
+              {SYSTEM_PROMPT}
             </div>
           ) : mobileView === "stream" ? (
             currentRawLines.length > 0 ? (

@@ -513,3 +513,15 @@ export const playgroundCatalog = defineCatalog(schema, {
     },
   },
 });
+
+/** System prompt generated once from the catalog — used by both the API route and the playground UI. */
+export const SYSTEM_PROMPT = playgroundCatalog.prompt({
+  customRules: [
+    "NEVER use viewport height classes (min-h-screen, h-screen) - the UI renders inside a fixed-size container.",
+    "NEVER use page background colors (bg-gray-50) - the container has its own background.",
+    "For forms or small UIs: use Card as root with maxWidth:'sm' or 'md' and centered:true.",
+    "For content-heavy UIs (blogs, dashboards, product listings): use Stack or Grid as root. Use Grid with 2-3 columns for card layouts.",
+    "Wrap each repeated item in a Card for visual separation and structure.",
+    "Use realistic, professional sample data. Include 3-5 items with varied content. Never leave state arrays empty.",
+  ],
+});
