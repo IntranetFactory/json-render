@@ -19,14 +19,17 @@ import { Sheet, SheetContent, SheetTitle } from "./ui/sheet";
 import { PlaygroundRenderer } from "@/lib/render/renderer";
 import { playgroundCatalog } from "@/lib/render/catalog";
 import { buildCatalogDisplayData } from "@/lib/render/catalog-display";
+import CodeMirror from "@uiw/react-codemirror";
+import { json } from "@codemirror/lang-json";
 
-type Tab = "json" | "nested" | "stream" | "catalog";
+type Tab = "json" | "nested" | "stream" | "catalog" | "prompt";
 type RenderView = "preview" | "code";
 type MobileView =
   | "json"
   | "nested"
   | "stream"
   | "catalog"
+  | "prompt"
   | "preview"
   | "generated-code";
 
@@ -104,6 +107,12 @@ export function Playground() {
   const [renderView, setRenderView] = useState<RenderView>("preview");
   const [mobileView, setMobileView] = useState<MobileView>("preview");
   const [versionsSheetOpen, setVersionsSheetOpen] = useState(false);
+  // JSON editor state
+  const [jsonEditorValue, setJsonEditorValue] =
+    useState<string>("// waiting...");
+  const [jsonParseError, setJsonParseError] = useState<string | null>(null);
+  const [editedSpec, setEditedSpec] = useState<Spec | null>(null);
+  const userEditedRef = useRef(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const mobileInputRef = useRef<HTMLTextAreaElement>(null);
   const versionsEndRef = useRef<HTMLDivElement>(null);
@@ -201,6 +210,58 @@ export function Playground() {
     }
   }, [isStreaming, apiSpec, streamUsage, streamRawLines]);
 
+  // Sync JSON editor when currentTree changes (streaming or new version) unless user has manually edited
+  useEffect(() => {
+    if (userEditedRef.current) return;
+    const newCode = currentTree
+      ? JSON.stringify(currentTree, null, 2)
+      : "// waiting...";
+    setJsonEditorValue(newCode);
+    setJsonParseError(null);
+  }, [currentTree]);
+
+  // Reset editor state when user selects a different version.
+  // currentTree is intentionally excluded from deps: the separate effect above handles
+  // syncing when currentTree changes. This effect only runs on version selection.
+  useEffect(() => {
+    userEditedRef.current = false;
+    setEditedSpec(null);
+    setJsonParseError(null);
+    const newCode = currentTree
+      ? JSON.stringify(currentTree, null, 2)
+      : "// waiting...";
+    setJsonEditorValue(newCode);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedVersionId]);
+
+  const parseDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleJsonEditorChange = useCallback((value: string) => {
+    setJsonEditorValue(value);
+    userEditedRef.current = true;
+    if (parseDebounceRef.current) clearTimeout(parseDebounceRef.current);
+    parseDebounceRef.current = setTimeout(() => {
+      try {
+        const parsed = JSON.parse(value) as unknown;
+        if (
+          parsed !== null &&
+          typeof parsed === "object" &&
+          "root" in (parsed as object) &&
+          "elements" in (parsed as object)
+        ) {
+          setEditedSpec(parsed as Spec);
+          setJsonParseError(null);
+        } else {
+          setEditedSpec(null);
+          setJsonParseError("Invalid spec: missing 'root' or 'elements'");
+        }
+      } catch (e) {
+        setEditedSpec(null);
+        setJsonParseError(e instanceof Error ? e.message : "Invalid JSON");
+      }
+    }, 300);
+  }, []);
+
   const handleSubmit = useCallback(async () => {
     if (!inputValue.trim() || isStreaming) return;
 
@@ -239,17 +300,20 @@ export function Playground() {
     ? JSON.stringify(currentTree, null, 2)
     : "// waiting...";
 
+  // The tree to use for preview and generated code: user's edited spec takes priority
+  const displayTree = editedSpec ?? currentTree;
+
   const nestedCode = useMemo(() => {
     if (!currentTree || !currentTree.root) return "// waiting...";
     return JSON.stringify(specToNested(currentTree), null, 2);
   }, [currentTree]);
 
   const generatedCode = useMemo(() => {
-    if (!currentTree || !currentTree.root) {
+    if (!displayTree || !displayTree.root) {
       return "// Generate a UI to see the code";
     }
 
-    const tree = currentTree;
+    const tree = displayTree;
     const components = collectUsedComponents(tree);
 
     function generateJSX(key: string, indent: number): string {
@@ -304,7 +368,7 @@ ${jsx}
     </div>
   );
 }`;
-  }, [currentTree]);
+  }, [displayTree]);
 
   // Chat pane content
   const chatPane = (
@@ -474,31 +538,37 @@ ${jsx}
   );
 
   // Code pane content
+  const promptText = useMemo(() => playgroundCatalog.prompt(), []);
+
   const copyText =
     activeTab === "stream"
       ? currentRawLines.join("\n")
       : activeTab === "json"
-        ? jsonCode
+        ? jsonEditorValue
         : activeTab === "nested"
           ? nestedCode
-          : "";
+          : activeTab === "prompt"
+            ? promptText
+            : "";
 
   const codePane = (
     <div className="h-full flex flex-col border-t border-border">
       <div className="border-b border-border px-3 h-9 flex items-center gap-3">
-        {(["json", "nested", "stream", "catalog"] as const).map((tab) => (
-          <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
-            className={`text-xs font-mono transition-colors ${
-              activeTab === tab
-                ? "text-foreground"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            {tab}
-          </button>
-        ))}
+        {(["json", "nested", "stream", "catalog", "prompt"] as const).map(
+          (tab) => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`text-xs font-mono transition-colors ${
+                activeTab === tab
+                  ? "text-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {tab}
+            </button>
+          ),
+        )}
         <div className="flex-1" />
         {activeTab !== "catalog" && (
           <CopyButton text={copyText} className="text-muted-foreground" />
@@ -637,8 +707,18 @@ ${jsx}
           )
         ) : activeTab === "nested" ? (
           <CodeBlock code={nestedCode} lang="json" fillHeight hideCopyButton />
+        ) : activeTab === "prompt" ? (
+          <pre className="h-full overflow-auto p-3 text-xs font-mono text-foreground whitespace-pre-wrap leading-relaxed">
+            {promptText}
+          </pre>
         ) : (
-          <CodeBlock code={jsonCode} lang="json" fillHeight hideCopyButton />
+          <CodeMirror
+            value={jsonEditorValue}
+            extensions={[json()]}
+            onChange={handleJsonEditorChange}
+            className="h-full text-xs"
+            basicSetup={{ lineNumbers: true, foldGutter: true }}
+          />
         )}
       </div>
     </div>
@@ -672,12 +752,19 @@ ${jsx}
         )}
       </div>
       <div className="flex-1 overflow-auto">
-        {renderView === "preview" ? (
-          currentTree && currentTree.root ? (
+        {jsonParseError ? (
+          <div className="h-full flex items-center justify-center p-6">
+            <div className="text-sm font-mono text-red-500 bg-red-500/10 border border-red-500/20 rounded p-4 max-w-lg w-full">
+              <div className="font-semibold mb-1">Invalid JSON</div>
+              <div className="text-red-400">{jsonParseError}</div>
+            </div>
+          </div>
+        ) : renderView === "preview" ? (
+          displayTree && displayTree.root ? (
             <div className="w-full min-h-full flex items-center justify-center p-6">
               <PlaygroundRenderer
-                spec={currentTree}
-                data={currentTree.state}
+                spec={displayTree}
+                data={displayTree.state}
                 loading={isStreaming}
               />
             </div>
@@ -737,19 +824,21 @@ ${jsx}
               : 0}
           </button>
           {/* Code tabs */}
-          {(["json", "nested", "stream", "catalog"] as const).map((tab) => (
-            <button
-              key={tab}
-              onClick={() => setMobileView(tab)}
-              className={`text-xs font-mono transition-colors shrink-0 ${
-                mobileView === tab
-                  ? "text-foreground"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {tab}
-            </button>
-          ))}
+          {(["json", "nested", "stream", "catalog", "prompt"] as const).map(
+            (tab) => (
+              <button
+                key={tab}
+                onClick={() => setMobileView(tab)}
+                className={`text-xs font-mono transition-colors shrink-0 ${
+                  mobileView === tab
+                    ? "text-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {tab}
+              </button>
+            ),
+          )}
           <div className="flex-1" />
           {/* Preview / code toggle */}
           {[
@@ -909,14 +998,31 @@ ${jsx}
               fillHeight
               hideCopyButton
             />
+          ) : mobileView === "prompt" ? (
+            <pre className="h-full overflow-auto p-3 text-xs font-mono text-foreground whitespace-pre-wrap leading-relaxed">
+              {promptText}
+            </pre>
           ) : mobileView === "json" ? (
-            <CodeBlock code={jsonCode} lang="json" fillHeight hideCopyButton />
+            <CodeMirror
+              value={jsonEditorValue}
+              extensions={[json()]}
+              onChange={handleJsonEditorChange}
+              className="h-full text-xs"
+              basicSetup={{ lineNumbers: true, foldGutter: true }}
+            />
           ) : mobileView === "preview" ? (
-            currentTree && currentTree.root ? (
+            jsonParseError ? (
+              <div className="h-full flex items-center justify-center p-6">
+                <div className="text-sm font-mono text-red-500 bg-red-500/10 border border-red-500/20 rounded p-4 max-w-lg w-full">
+                  <div className="font-semibold mb-1">Invalid JSON</div>
+                  <div className="text-red-400">{jsonParseError}</div>
+                </div>
+              </div>
+            ) : displayTree && displayTree.root ? (
               <div className="w-full min-h-full flex items-center justify-center p-6">
                 <PlaygroundRenderer
-                  spec={currentTree}
-                  data={currentTree.state}
+                  spec={displayTree}
+                  data={displayTree.state}
                   loading={isStreaming}
                 />
               </div>
@@ -954,6 +1060,14 @@ ${jsx}
                 )}
               </div>
             )
+          ) : jsonParseError ? (
+            /* generated-code - error state */
+            <div className="h-full flex items-center justify-center p-6">
+              <div className="text-sm font-mono text-red-500 bg-red-500/10 border border-red-500/20 rounded p-4 max-w-lg w-full">
+                <div className="font-semibold mb-1">Invalid JSON</div>
+                <div className="text-red-400">{jsonParseError}</div>
+              </div>
+            </div>
           ) : (
             /* generated-code */
             <CodeBlock
